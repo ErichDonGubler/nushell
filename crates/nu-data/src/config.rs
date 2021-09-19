@@ -238,12 +238,7 @@ pub fn read(
     tag: impl Into<Tag>,
     at: &Option<PathBuf>,
 ) -> Result<IndexMap<String, Value>, ShellError> {
-    let filename = default_path()?;
-
-    let filename = match at {
-        None => filename,
-        Some(ref file) => file.clone(),
-    };
+    let filename = at.clone().unwrap_or(default_path()?);
 
     if !filename.exists() && touch(&filename).is_err() {
         // If we can't create configs, let's just return an empty indexmap instead as we may be in
