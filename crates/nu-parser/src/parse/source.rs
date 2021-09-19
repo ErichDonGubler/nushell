@@ -9,8 +9,8 @@ use nu_source::SpannedItem;
 
 pub fn parse_source_internal(
     lite_cmd: &LiteCommand,
-    command: &InternalCommand,
-    scope: &dyn ParserScope,
+    _command: &InternalCommand,
+    _scope: &dyn ParserScope,
 ) -> Result<(), ParseError> {
     if lite_cmd.parts.len() != 2 {
         return Err(ParseError::argument_error(
@@ -19,17 +19,18 @@ pub fn parse_source_internal(
         ));
     }
 
-    if lite_cmd.parts[1].item.starts_with('$') {
-        return Err(ParseError::mismatch(
-            "a filepath constant",
-            lite_cmd.parts[1].clone(),
-        ));
-    }
+    // if lite_cmd.parts[1].item.starts_with('$') {
+    //     return Err(ParseError::mismatch(
+    //         "a filepath constant",
+    //         lite_cmd.parts[1].clone(),
+    //     ));
+    // }
 
-    // look for source files in lib dirs first
-    // if not files are found, try the current path
-    // first file found wins.
-    find_source_file(lite_cmd, command, scope)
+    // // look for source files in lib dirs first
+    // // if not files are found, try the current path
+    // // first file found wins.
+    // find_source_file(lite_cmd, command, scope)
+    Ok(())
 }
 
 fn find_source_file(
