@@ -6,7 +6,7 @@ use nu_path::{canonicalize, canonicalize_with};
 use nu_protocol::{Signature, SyntaxShape};
 use nu_source::Tagged;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct Source;
 
@@ -43,7 +43,7 @@ impl WholeStreamCommand for Source {
 
 pub fn source(args: CommandArgs) -> Result<OutputStream, ShellError> {
     let ctx = &args.context;
-    let filename: Tagged<String> = args.req(0)?;
+    let filename: Tagged<PathBuf> = args.req(0)?;
 
     let source_file = Path::new(&filename.item);
 
