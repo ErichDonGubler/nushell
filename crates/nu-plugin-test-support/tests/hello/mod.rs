@@ -8,6 +8,10 @@ struct HelloPlugin;
 struct Hello;
 
 impl Plugin for HelloPlugin {
+    fn version(&self) -> String {
+        "0.0.0".into()
+    }
+
     fn commands(&self) -> Vec<Box<dyn PluginCommand<Plugin = Self>>> {
         vec![Box::new(Hello)]
     }
@@ -80,7 +84,7 @@ fn test_requiring_nu_cmd_lang_commands() -> Result<(), ShellError> {
 
     let result = PluginTest::new("hello", HelloPlugin.into())?
         .eval("do { let greeting = hello; $greeting }")?
-        .into_value(Span::test_data());
+        .into_value(Span::test_data())?;
 
     assert_eq!(Value::test_string("Hello, World!"), result);
 

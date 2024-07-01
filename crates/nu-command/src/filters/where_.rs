@@ -1,5 +1,5 @@
 use nu_engine::{command_prelude::*, ClosureEval};
-use nu_protocol::engine::Closure;
+use nu_protocol::engine::{Closure, CommandType};
 
 #[derive(Clone)]
 pub struct Where;
@@ -17,6 +17,10 @@ impl Command for Where {
         r#"This command works similar to 'filter' but allows extra shorthands for working with
 tables, known as "row conditions". On the other hand, reading the condition from a variable is
 not supported."#
+    }
+
+    fn command_type(&self) -> CommandType {
+        CommandType::Keyword
     }
 
     fn signature(&self) -> nu_protocol::Signature {
@@ -57,9 +61,14 @@ not supported."#
         let metadata = input.metadata();
         Ok(input
             .into_iter_strict(head)?
-            .filter_map(move |value| match closure.run_with_value(value.clone()) {
-                Ok(data) => data.into_value(head).is_true().then_some(value),
-                Err(err) => Some(Value::error(err, head)),
+            .filter_map(move |value| {
+                match closure
+                    .run_with_value(value.clone())
+                    .and_then(|data| data.into_value(head))
+                {
+                    Ok(cond) => cond.is_true().then_some(value),
+                    Err(err) => Some(Value::error(err, head)),
+                }
             })
             .into_pipeline_data_with_metadata(head, engine_state.ctrlc.clone(), metadata))
     }

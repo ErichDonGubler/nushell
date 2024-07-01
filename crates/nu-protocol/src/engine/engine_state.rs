@@ -7,8 +7,8 @@ use crate::{
         Variable, Visibility, DEFAULT_OVERLAY_NAME,
     },
     eval_const::create_nu_constant,
-    BlockId, Category, Config, DeclId, Example, FileId, HistoryConfig, Module, ModuleId, OverlayId,
-    ShellError, Signature, Span, Type, Value, VarId, VirtualPathId,
+    BlockId, Category, Config, DeclId, FileId, GetSpan, HistoryConfig, Module, ModuleId, OverlayId,
+    ShellError, Signature, Span, SpanId, Type, Value, VarId, VirtualPathId,
 };
 use fancy_regex::Regex;
 use lru::LruCache;
@@ -81,6 +81,7 @@ pub struct EngineState {
     // especially long, so it helps
     pub(super) blocks: Arc<Vec<Arc<Block>>>,
     pub(super) modules: Arc<Vec<Arc<Module>>>,
+    pub spans: Vec<Span>,
     usage: Usage,
     pub scope: ScopeFrame,
     pub ctrlc: Option<Arc<AtomicBool>>,
@@ -115,6 +116,9 @@ pub const IN_VARIABLE_ID: usize = 1;
 pub const ENV_VARIABLE_ID: usize = 2;
 // NOTE: If you add more to this list, make sure to update the > checks based on the last in the list
 
+// The first span is unknown span
+pub const UNKNOWN_SPAN_ID: SpanId = SpanId(0);
+
 impl EngineState {
     pub fn new() -> Self {
         Self {
@@ -132,6 +136,7 @@ impl EngineState {
             modules: Arc::new(vec![Arc::new(Module::new(
                 DEFAULT_OVERLAY_NAME.as_bytes().to_vec(),
             ))]),
+            spans: vec![Span::unknown()],
             usage: Usage::new(),
             // make sure we have some default overlay:
             scope: ScopeFrame::with_empty_overlay(
@@ -184,6 +189,7 @@ impl EngineState {
         self.files.extend(delta.files);
         self.virtual_paths.extend(delta.virtual_paths);
         self.vars.extend(delta.vars);
+        self.spans.extend(delta.spans);
         self.usage.merge_with(delta.usage);
 
         // Avoid potentially cloning the Arcs if we aren't adding anything
@@ -565,6 +571,9 @@ impl EngineState {
         self.modules.len()
     }
 
+    pub fn num_spans(&self) -> usize {
+        self.spans.len()
+    }
     pub fn print_vars(&self) {
         for var in self.vars.iter().enumerate() {
             println!("var{}: {:?}", var.0, var.1);
@@ -766,10 +775,7 @@ impl EngineState {
     }
 
     /// Get all commands within scope, sorted by the commands' names
-    pub fn get_decls_sorted(
-        &self,
-        include_hidden: bool,
-    ) -> impl Iterator<Item = (Vec<u8>, DeclId)> {
+    pub fn get_decls_sorted(&self, include_hidden: bool) -> Vec<(Vec<u8>, DeclId)> {
         let mut decls_map = HashMap::new();
 
         for overlay_frame in self.active_overlays(&[]) {
@@ -790,11 +796,11 @@ impl EngineState {
         let mut decls: Vec<(Vec<u8>, DeclId)> = decls_map.into_iter().collect();
 
         decls.sort_by(|a, b| a.0.cmp(&b.0));
-        decls.into_iter()
+        decls
     }
 
     pub fn get_signature(&self, decl: &dyn Command) -> Signature {
-        if let Some(block_id) = decl.get_block_id() {
+        if let Some(block_id) = decl.block_id() {
             *self.blocks[block_id].signature.clone()
         } else {
             decl.signature()
@@ -804,36 +810,11 @@ impl EngineState {
     /// Get signatures of all commands within scope.
     pub fn get_signatures(&self, include_hidden: bool) -> Vec<Signature> {
         self.get_decls_sorted(include_hidden)
+            .into_iter()
             .map(|(_, id)| {
                 let decl = self.get_decl(id);
 
                 self.get_signature(decl).update_from_command(decl)
-            })
-            .collect()
-    }
-
-    /// Get signatures of all commands within scope.
-    ///
-    /// In addition to signatures, it returns whether each command is:
-    ///     a) a plugin
-    ///     b) custom
-    pub fn get_signatures_with_examples(
-        &self,
-        include_hidden: bool,
-    ) -> Vec<(Signature, Vec<Example>, bool, bool, bool)> {
-        self.get_decls_sorted(include_hidden)
-            .map(|(_, id)| {
-                let decl = self.get_decl(id);
-
-                let signature = self.get_signature(decl).update_from_command(decl);
-
-                (
-                    signature,
-                    decl.examples(),
-                    decl.is_plugin(),
-                    decl.get_block_id().is_some(),
-                    decl.is_parser_keyword(),
-                )
             })
             .collect()
     }
@@ -1046,6 +1027,27 @@ impl EngineState {
                 NonZeroUsize::new(REGEX_CACHE_SIZE).expect("tried to create cache of size zero"),
             )));
         }
+    }
+
+    /// Add new span and return its ID
+    pub fn add_span(&mut self, span: Span) -> SpanId {
+        self.spans.push(span);
+        SpanId(self.num_spans() - 1)
+    }
+
+    /// Find ID of a span (should be avoided if possible)
+    pub fn find_span_id(&self, span: Span) -> Option<SpanId> {
+        self.spans.iter().position(|sp| sp == &span).map(SpanId)
+    }
+}
+
+impl<'a> GetSpan for &'a EngineState {
+    /// Get existing span
+    fn get_span(&self, span_id: SpanId) -> Span {
+        *self
+            .spans
+            .get(span_id.0)
+            .expect("internal error: missing span")
     }
 }
 

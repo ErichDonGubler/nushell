@@ -1,5 +1,4 @@
 use log::info;
-use miette::Result;
 use nu_engine::{convert_env_values, eval_block};
 use nu_parser::parse;
 use nu_protocol::{
@@ -9,15 +8,45 @@ use nu_protocol::{
 };
 use std::sync::Arc;
 
+#[derive(Default)]
+pub struct EvaluateCommandsOpts {
+    pub table_mode: Option<Value>,
+    pub error_style: Option<Value>,
+    pub no_newline: bool,
+}
+
 /// Run a command (or commands) given to us by the user
 pub fn evaluate_commands(
     commands: &Spanned<String>,
     engine_state: &mut EngineState,
     stack: &mut Stack,
     input: PipelineData,
-    table_mode: Option<Value>,
-    no_newline: bool,
+    opts: EvaluateCommandsOpts,
 ) -> Result<(), ShellError> {
+    let EvaluateCommandsOpts {
+        table_mode,
+        error_style,
+        no_newline,
+    } = opts;
+
+    // Handle the configured error style early
+    if let Some(e_style) = error_style {
+        match e_style.coerce_str()?.parse() {
+            Ok(e_style) => {
+                Arc::make_mut(&mut engine_state.config).error_style = e_style;
+            }
+            Err(err) => {
+                return Err(ShellError::GenericError {
+                    error: "Invalid value for `--error-style`".into(),
+                    msg: err.into(),
+                    span: Some(e_style.span()),
+                    help: None,
+                    inner: vec![],
+                });
+            }
+        }
+    }
+
     // Translate environment variables from Strings to Values
     convert_env_values(engine_state, stack)?;
 
@@ -59,9 +88,10 @@ pub fn evaluate_commands(
             t_mode.coerce_str()?.parse().unwrap_or_default();
     }
 
-    let exit_code = pipeline.print(engine_state, stack, no_newline, false)?;
-    if exit_code != 0 {
-        std::process::exit(exit_code as i32);
+    if let Some(status) = pipeline.print(engine_state, stack, no_newline, false)? {
+        if status.code() != 0 {
+            std::process::exit(status.code())
+        }
     }
 
     info!("evaluate {}:{}:{}", file!(), line!(), column!());

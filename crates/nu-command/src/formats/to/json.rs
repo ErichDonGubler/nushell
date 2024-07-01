@@ -1,5 +1,5 @@
 use nu_engine::command_prelude::*;
-use nu_protocol::ast::PathMember;
+use nu_protocol::{ast::PathMember, PipelineMetadata};
 
 #[derive(Clone)]
 pub struct ToJson;
@@ -46,7 +46,7 @@ impl Command for ToJson {
         let span = call.head;
         // allow ranges to expand and turn into array
         let input = input.try_expand_range()?;
-        let value = input.into_value(span);
+        let value = input.into_value(span)?;
         let json_value = value_to_json_value(&value)?;
 
         let json_result = if raw {
@@ -61,7 +61,12 @@ impl Command for ToJson {
 
         match json_result {
             Ok(serde_json_string) => {
-                Ok(Value::string(serde_json_string, span).into_pipeline_data())
+                let res = Value::string(serde_json_string, span);
+                let metadata = PipelineMetadata {
+                    data_source: nu_protocol::DataSource::None,
+                    content_type: Some("application/json".to_string()),
+                };
+                Ok(PipelineData::Value(res, Some(metadata)))
             }
             _ => Ok(Value::error(
                 ShellError::CantConvert {

@@ -63,7 +63,7 @@ fn remove_cache_entry(
     let key = as_uuid(key, span)?;
     let msg = plugin
         .cache
-        .remove(Some(engine), &key, true)?
+        .remove(engine, &key, true)?
         .map(|_| format!("Removed: {key}"))
         .unwrap_or_else(|| format!("No value found for key: {key}"));
     Ok(Value::string(msg, span))
@@ -94,7 +94,7 @@ mod test {
             .add_decl(Box::new(First))?
             .add_decl(Box::new(Get))?
             .eval("let df = ([[a b];[1 2] [3 4]] | polars into-df); polars store-ls | get key | first | polars store-rm $in")?;
-        let value = pipeline_data.into_value(Span::test_data());
+        let value = pipeline_data.into_value(Span::test_data())?;
         let msg = value
             .as_list()?
             .first()

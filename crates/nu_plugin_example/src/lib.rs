@@ -7,6 +7,10 @@ pub use commands::*;
 pub use example::ExamplePlugin;
 
 impl Plugin for ExamplePlugin {
+    fn version(&self) -> String {
+        env!("CARGO_PKG_VERSION").into()
+    }
+
     fn commands(&self) -> Vec<Box<dyn PluginCommand<Plugin = Self>>> {
         // This is a list of all of the commands you would like Nu to register when your plugin is
         // loaded.
@@ -24,7 +28,7 @@ impl Plugin for ExamplePlugin {
             Box::new(ViewSpan),
             Box::new(DisableGc),
             // Stream demos
-            Box::new(CollectExternal),
+            Box::new(CollectBytes),
             Box::new(Echo),
             Box::new(ForEach),
             Box::new(Generate),

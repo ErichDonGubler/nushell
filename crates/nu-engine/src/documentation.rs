@@ -2,18 +2,16 @@ use crate::eval_call;
 use nu_protocol::{
     ast::{Argument, Call, Expr, Expression, RecordItem},
     debugger::WithoutDebug,
-    engine::{EngineState, Stack},
-    record, Category, Example, IntoPipelineData, PipelineData, Signature, Span, SyntaxShape, Type,
-    Value,
+    engine::{Command, EngineState, Stack, UNKNOWN_SPAN_ID},
+    record, Category, Example, IntoPipelineData, PipelineData, Signature, Span, SpanId, Spanned,
+    SyntaxShape, Type, Value,
 };
 use std::{collections::HashMap, fmt::Write};
 
 pub fn get_full_help(
-    sig: &Signature,
-    examples: &[Example],
+    command: &dyn Command,
     engine_state: &EngineState,
     stack: &mut Stack,
-    is_parser_keyword: bool,
 ) -> String {
     let config = engine_state.get_config();
     let doc_config = DocumentationConfig {
@@ -23,14 +21,15 @@ pub fn get_full_help(
     };
 
     let stack = &mut stack.start_capture();
+    let signature = command.signature().update_from_command(command);
 
     get_documentation(
-        sig,
-        examples,
+        &signature,
+        &command.examples(),
         engine_state,
         stack,
         &doc_config,
-        is_parser_keyword,
+        command.is_keyword(),
     )
 }
 
@@ -53,7 +52,7 @@ fn nu_highlight_string(code_string: &str, engine_state: &EngineState, stack: &mu
             Value::string(code_string, Span::unknown()).into_pipeline_data(),
         ) {
             let result = output.into_value(Span::unknown());
-            if let Ok(s) = result.coerce_into_string() {
+            if let Ok(s) = result.and_then(Value::coerce_into_string) {
                 return s; // successfully highlighted string
             }
         }
@@ -61,7 +60,6 @@ fn nu_highlight_string(code_string: &str, engine_state: &EngineState, stack: &mu
     code_string.to_string()
 }
 
-#[allow(clippy::cognitive_complexity)]
 fn get_documentation(
     sig: &Signature,
     examples: &[Example],
@@ -280,7 +278,7 @@ fn get_documentation(
             ) {
                 Ok(output) => {
                     let result = output.into_value(Span::unknown());
-                    match result.coerce_into_string() {
+                    match result.and_then(Value::coerce_into_string) {
                         Ok(s) => {
                             let _ = write!(long_desc, "\n  > {s}\n");
                         }
@@ -298,6 +296,28 @@ fn get_documentation(
         }
 
         if let Some(result) = &example.result {
+            let mut table_call = Call::new(Span::unknown());
+            if example.example.ends_with("--collapse") {
+                // collapse the result
+                table_call.add_named((
+                    Spanned {
+                        item: "collapse".to_string(),
+                        span: Span::unknown(),
+                    },
+                    None,
+                    None,
+                ))
+            } else {
+                // expand the result
+                table_call.add_named((
+                    Spanned {
+                        item: "expand".to_string(),
+                        span: Span::unknown(),
+                    },
+                    None,
+                    None,
+                ))
+            }
             let table = engine_state
                 .find_decl("table".as_bytes(), &[])
                 .and_then(|decl_id| {
@@ -306,7 +326,7 @@ fn get_documentation(
                         .run(
                             engine_state,
                             stack,
-                            &Call::new(Span::new(0, 0)),
+                            &table_call,
                             PipelineData::Value(result.clone(), None),
                         )
                         .ok()
@@ -341,8 +361,9 @@ fn get_ansi_color_for_component_or_default(
     if let Some(color) = &engine_state.get_config().color_config.get(theme_component) {
         let caller_stack = &mut Stack::new().capture();
         let span = Span::unknown();
+        let span_id = UNKNOWN_SPAN_ID;
 
-        let argument_opt = get_argument_for_color_value(engine_state, color, span);
+        let argument_opt = get_argument_for_color_value(engine_state, color, span, span_id);
 
         // Call ansi command using argument
         if let Some(argument) = argument_opt {
@@ -373,6 +394,7 @@ fn get_argument_for_color_value(
     engine_state: &EngineState,
     color: &&Value,
     span: Span,
+    span_id: SpanId,
 ) -> Option<Argument> {
     match color {
         Value::Record { val, .. } => {
@@ -380,43 +402,43 @@ fn get_argument_for_color_value(
                 .iter()
                 .map(|(k, v)| {
                     RecordItem::Pair(
-                        Expression {
-                            expr: Expr::String(k.clone()),
+                        Expression::new_existing(
+                            Expr::String(k.clone()),
                             span,
-                            ty: Type::String,
-                            custom_completion: None,
-                        },
-                        Expression {
-                            expr: Expr::String(
+                            span_id,
+                            Type::String,
+                        ),
+                        Expression::new_existing(
+                            Expr::String(
                                 v.clone().to_expanded_string("", engine_state.get_config()),
                             ),
                             span,
-                            ty: Type::String,
-                            custom_completion: None,
-                        },
+                            span_id,
+                            Type::String,
+                        ),
                     )
                 })
                 .collect();
 
-            Some(Argument::Positional(Expression {
-                span: Span::unknown(),
-                ty: Type::Record(
+            Some(Argument::Positional(Expression::new_existing(
+                Expr::Record(record_exp),
+                Span::unknown(),
+                UNKNOWN_SPAN_ID,
+                Type::Record(
                     [
                         ("fg".to_string(), Type::String),
                         ("attr".to_string(), Type::String),
                     ]
                     .into(),
                 ),
-                expr: Expr::Record(record_exp),
-                custom_completion: None,
-            }))
+            )))
         }
-        Value::String { val, .. } => Some(Argument::Positional(Expression {
-            span: Span::unknown(),
-            ty: Type::String,
-            expr: Expr::String(val.clone()),
-            custom_completion: None,
-        })),
+        Value::String { val, .. } => Some(Argument::Positional(Expression::new_existing(
+            Expr::String(val.clone()),
+            Span::unknown(),
+            UNKNOWN_SPAN_ID,
+            Type::String,
+        ))),
         _ => None,
     }
 }

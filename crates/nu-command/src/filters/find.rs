@@ -69,9 +69,9 @@ impl Command for Find {
                 result: None,
             },
             Example {
-                description: "Search and highlight text for a term in a string",
-                example: r#"'Cargo.toml' | find toml"#,
-                result: Some(Value::test_string("\u{1b}[37mCargo.\u{1b}[0m\u{1b}[41;37mtoml\u{1b}[0m\u{1b}[37m\u{1b}[0m".to_owned())),
+                description: "Search and highlight text for a term in a string. Note that regular search is case insensitive",
+                example: r#"'Cargo.toml' | find cargo"#,
+                result: Some(Value::test_string("\u{1b}[37m\u{1b}[0m\u{1b}[41;37mCargo\u{1b}[0m\u{1b}[37m.toml\u{1b}[0m".to_owned())),
             },
             Example {
                 description: "Search a number or a file size in a list of numbers",
@@ -447,57 +447,36 @@ fn find_with_rest_and_highlight(
 
             Ok(PipelineData::ListStream(stream, metadata))
         }
-        PipelineData::ExternalStream { stdout: None, .. } => Ok(PipelineData::empty()),
-        PipelineData::ExternalStream {
-            stdout: Some(stream),
-            ..
-        } => {
-            let mut output: Vec<Value> = vec![];
-            for filter_val in stream {
-                match filter_val {
-                    Ok(value) => {
-                        let span = value.span();
-                        match value {
-                            Value::String { val, .. } => {
-                                let split_char = if val.contains("\r\n") { "\r\n" } else { "\n" };
+        PipelineData::ByteStream(stream, ..) => {
+            let span = stream.span();
+            if let Some(lines) = stream.lines() {
+                let terms = lower_terms
+                    .into_iter()
+                    .map(|term| term.to_expanded_string("", &filter_config).to_lowercase())
+                    .collect::<Vec<_>>();
 
-                                for line in val.split(split_char) {
-                                    for term in lower_terms.iter() {
-                                        let term_str = term.to_expanded_string("", &filter_config);
-                                        let lower_val = line.to_lowercase();
-                                        if lower_val.contains(
-                                            &term.to_expanded_string("", &config).to_lowercase(),
-                                        ) {
-                                            output.push(Value::string(
-                                                highlight_search_string(
-                                                    line,
-                                                    &term_str,
-                                                    &string_style,
-                                                    &highlight_style,
-                                                )?,
-                                                span,
-                                            ))
-                                        }
-                                    }
-                                }
-                            }
-                            // Propagate errors by explicitly matching them before the final case.
-                            Value::Error { error, .. } => return Err(*error),
-                            other => {
-                                return Err(ShellError::UnsupportedInput {
-                                    msg: "unsupported type from raw stream".into(),
-                                    input: format!("input: {:?}", other.get_type()),
-                                    msg_span: span,
-                                    input_span: other.span(),
-                                });
-                            }
+                let mut output: Vec<Value> = vec![];
+                for line in lines {
+                    let line = line?;
+                    let lower_val = line.to_lowercase();
+                    for term in &terms {
+                        if lower_val.contains(term) {
+                            output.push(Value::string(
+                                highlight_search_string(
+                                    &line,
+                                    term,
+                                    &string_style,
+                                    &highlight_style,
+                                )?,
+                                span,
+                            ))
                         }
                     }
-                    // Propagate any errors that were in the stream
-                    Err(e) => return Err(e),
-                };
+                }
+                Ok(Value::list(output, span).into_pipeline_data())
+            } else {
+                Ok(PipelineData::Empty)
             }
-            Ok(output.into_pipeline_data(span, ctrlc))
         }
     }
 }

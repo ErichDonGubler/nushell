@@ -26,7 +26,7 @@ use crate::{
 
 /// This should be larger than the largest commonly sent message to avoid excessive fragmentation.
 ///
-/// The buffers coming from external streams are typically each 8192 bytes, so double that.
+/// The buffers coming from byte streams are typically each 8192 bytes, so double that.
 pub(crate) const OUTPUT_BUFFER_SIZE: usize = 16384;
 
 /// Spawn the command for a plugin, in the given `mode`. After spawning, it can be passed to
@@ -252,13 +252,16 @@ pub fn load_plugin_registry_item(
         })?;
 
     match &plugin.data {
-        PluginRegistryItemData::Valid { commands } => {
+        PluginRegistryItemData::Valid { metadata, commands } => {
             let plugin = add_plugin_to_working_set(working_set, &identity)?;
 
             // Ensure that the plugin is reset. We're going to load new signatures, so we want to
             // make sure the running plugin reflects those new signatures, and it's possible that it
             // doesn't.
             plugin.reset()?;
+
+            // Set the plugin metadata from the file
+            plugin.set_metadata(Some(metadata.clone()));
 
             // Create the declarations from the commands
             for signature in commands {

@@ -11,8 +11,8 @@ use nu_plugin_protocol::{
     ProtocolInfo,
 };
 use nu_protocol::{
-    engine::Closure, Config, LabeledError, PipelineData, PluginSignature, ShellError, Span,
-    Spanned, Value,
+    engine::Closure, Config, LabeledError, PipelineData, PluginMetadata, PluginSignature,
+    ShellError, Span, Spanned, Value,
 };
 use std::{
     collections::{btree_map, BTreeMap, HashMap},
@@ -29,6 +29,9 @@ use std::{
 #[derive(Debug)]
 #[doc(hidden)]
 pub enum ReceivedPluginCall {
+    Metadata {
+        engine: EngineInterface,
+    },
     Signature {
         engine: EngineInterface,
     },
@@ -280,8 +283,11 @@ impl InterfaceManager for EngineInterfaceManager {
                     }
                 };
                 match call {
-                    // We just let the receiver handle it rather than trying to store signature here
-                    // or something
+                    // Ask the plugin for metadata
+                    PluginCall::Metadata => {
+                        self.send_plugin_call(ReceivedPluginCall::Metadata { engine: interface })
+                    }
+                    // Ask the plugin for signatures
                     PluginCall::Signature => {
                         self.send_plugin_call(ReceivedPluginCall::Signature { engine: interface })
                     }
@@ -345,7 +351,7 @@ impl InterfaceManager for EngineInterfaceManager {
                 });
                 Ok(PipelineData::ListStream(stream, meta))
             }
-            PipelineData::Empty | PipelineData::ExternalStream { .. } => Ok(data),
+            PipelineData::Empty | PipelineData::ByteStream(..) => Ok(data),
         }
     }
 }
@@ -414,6 +420,13 @@ impl EngineInterface {
                 Ok(Default::default())
             }
         }
+    }
+
+    /// Write a call response of plugin metadata.
+    pub(crate) fn write_metadata(&self, metadata: PluginMetadata) -> Result<(), ShellError> {
+        let response = PluginCallResponse::Metadata(metadata);
+        self.write(PluginOutput::CallResponse(self.context()?, response))?;
+        self.flush()
     }
 
     /// Write a call response of plugin signatures.
@@ -850,7 +863,7 @@ impl EngineInterface {
         let input = input.map_or_else(|| PipelineData::Empty, |v| PipelineData::Value(v, None));
         let output = self.eval_closure_with_stream(closure, positional, input, true, false)?;
         // Unwrap an error value
-        match output.into_value(closure.span) {
+        match output.into_value(closure.span)? {
             Value::Error { error, .. } => Err(*error),
             value => Ok(value),
         }
@@ -920,7 +933,7 @@ impl Interface for EngineInterface {
                 });
                 Ok(PipelineData::ListStream(stream, meta))
             }
-            PipelineData::Empty | PipelineData::ExternalStream { .. } => Ok(data),
+            PipelineData::Empty | PipelineData::ByteStream(..) => Ok(data),
         }
     }
 }

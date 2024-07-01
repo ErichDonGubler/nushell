@@ -60,6 +60,9 @@ use crate::{EngineInterface, EvaluatedCall, Plugin};
 /// }
 ///
 /// # impl Plugin for LowercasePlugin {
+/// #     fn version(&self) -> String {
+/// #         "0.0.0".into()
+/// #     }
 /// #     fn commands(&self) -> Vec<Box<dyn PluginCommand<Plugin=Self>>> {
 /// #         vec![Box::new(Lowercase)]
 /// #     }
@@ -195,6 +198,9 @@ pub trait PluginCommand: Sync {
 /// }
 ///
 /// # impl Plugin for HelloPlugin {
+/// #     fn version(&self) -> String {
+/// #         "0.0.0".into()
+/// #     }
 /// #     fn commands(&self) -> Vec<Box<dyn PluginCommand<Plugin=Self>>> {
 /// #         vec![Box::new(Hello)]
 /// #     }
@@ -313,7 +319,7 @@ where
         // Unwrap the PipelineData from input, consuming the potential stream, and pass it to the
         // simpler signature in Plugin
         let span = input.span().unwrap_or(call.head);
-        let input_value = input.into_value(span);
+        let input_value = input.into_value(span)?;
         // Wrap the output in PipelineData::Value
         <Self as SimplePluginCommand>::run(self, plugin, engine, call, &input_value)
             .map(|value| PipelineData::Value(value, None))
